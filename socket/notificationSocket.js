@@ -53,66 +53,75 @@ export function setupNotificationSocket(io) {
 }
 
 // Emit tin nhắn
-export function emitMessageNotification(toUserId, fromUserId, message) {
-  const sql = `INSERT INTO notifications (type, sender_id, receiver_id, title, content)
-               VALUES ('message', ?, ?, 'Tin nhắn mới', ?)`;
-  db.query(sql, [fromUserId, toUserId, message], (err, result) => {
+export function emitMessageNotification(receiverId, senderId, message) {
+  const sql = `
+    INSERT INTO notifications (type, sender_id, receiver_id, title, content)
+    VALUES ('message', ?, ?, 'Tin nhắn mới', ?)
+  `;
+
+  db.query(sql, [senderId, receiverId, message], (err, result) => {
     if (err) return console.error(err);
 
-    console.log(`✅ Lưu thông báo tin nhắn ID ${result.insertId}`);
+    const payload = {
+      id: result.insertId,
+      type: "message",
+      title: "Tin nhắn mới",
+      content: message,
+      sender_id: senderId,
+      receiver_id: receiverId,
+      created_at: new Date(),
+    };
 
-    if (ioInstance) {
-      Object.values(onlineUsers.admin).forEach(sid => {
-        ioInstance.to(sid).emit("newNotification", {
-          id: result.insertId,
-          type: "message",
-          title: "Tin nhắn mới",
-          content: message,
-          sender_id: fromUserId,
-          receiver_id: toUserId,
-          created_at: new Date()
-        });
-      });
+    // emit cho admin
+    Object.values(onlineUsers.admin).forEach(sid => {
+      ioInstance?.to(sid).emit("newNotification", payload);
+    });
 
-      const custSocket = onlineUsers.customer[toUserId];
-      if (custSocket) {
-        ioInstance.to(custSocket).emit("newNotification", {
-          id: result.insertId,
-          type: "message",
-          title: "Tin nhắn mới",
-          content: message,
-          sender_id: fromUserId,
-          receiver_id: toUserId,
-          created_at: new Date()
-        });
-      }
+    // emit cho customer
+    const custSocket = onlineUsers.customer[receiverId];
+    if (custSocket) {
+      ioInstance?.to(custSocket).emit("newNotification", payload);
     }
   });
 }
 
+
 // Emit order đơn hàng mới cho admin
 export function emitOrderNotification(orderId, customerId) {
   const content = `Khách hàng #${customerId} vừa đặt đơn hàng #${orderId}`;
-  const sql = `INSERT INTO notifications (type, sender_id, receiver_id, title, content)
-               VALUES ('order', ?, NULL, 'Đơn hàng mới', ?)`;
-  db.query(sql, [customerId, content], (err, result) => {
-    if (err) return console.error(err);
 
-    console.log(`✅ Lưu thông báo đơn hàng ID ${result.insertId}`);
+  db.query(
+    "SELECT id FROM users WHERE role='admin'",
+    (err, admins) => {
+      if (err) return console.error(err);
 
-    if (ioInstance) {
-      Object.values(onlineUsers.admin).forEach(sid => {
-        ioInstance.to(sid).emit("newNotification", {
-          id: result.insertId,
-          type: "order",
-          title: "Đơn hàng mới",
-          content,
-          sender_id: customerId,
-          created_at: new Date()
+      admins.forEach(admin => {
+        const sql = `
+          INSERT INTO notifications (type, sender_id, receiver_id, title, content)
+          VALUES ('order', ?, ?, 'Đơn hàng mới', ?)
+        `;
+
+        db.query(sql, [customerId, admin.id, content], (err, result) => {
+          if (err) return console.error(err);
+
+          const payload = {
+            id: result.insertId,
+            type: "order",
+            title: "Đơn hàng mới",
+            content,
+            sender_id: customerId,
+            receiver_id: admin.id,
+            created_at: new Date(),
+          };
+
+          const sid = onlineUsers.admin[admin.id];
+          if (sid) {
+            ioInstance?.to(sid).emit("newNotification", payload);
+          }
         });
       });
     }
-  });
+  );
 }
 
 // Emit cập nhật trạng thái đơn hàng cho khách

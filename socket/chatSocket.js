@@ -1,100 +1,106 @@
-import db from "../config/db.js"; // MySQL connection
-import { emitMessageNotification } from './notificationSocket.js';
+import db from "../config/db.js";
+import { emitMessageNotification } from "./notificationSocket.js";
 
-let ioInstance = null;
-let onlineUsers = { customer: {}, admin: {} }; // phân tách admin & customer
+let onlineUsers = { customer: {}, admin: {} };
 
 export function setupChatSocket(io) {
-  ioInstance = io;
+  console.log("🔥 setupChatSocket INIT");
 
   io.on("connection", (socket) => {
     console.log(`🟢 Client kết nối: ${socket.id}`);
 
-    // Khi client join
+    // 🚫 Chống gắn listener trùng
+    socket.removeAllListeners("sendMessage");
+
+    // Join
     socket.on("join", ({ userId, isAdmin }) => {
       const type = isAdmin ? "admin" : "customer";
       onlineUsers[type][userId] = socket.id;
-      console.log(`Người dùng ${userId} (${type}) đã online`);
-      emitOnlineUsers();
+      console.log(`👤 ${type} ${userId} online`);
+      emitOnlineUsers(io);
     });
 
-    // Khi gửi tin nhắn
-    socket.on("sendMessage", ({ toUserId, fromUserId, message, isAdminSender }) => {
+    // Gửi tin nhắn
+    socket.on("sendMessage", async ({ toUserId, fromUserId, message, isAdminSender }) => {
       const senderType = isAdminSender ? "admin" : "customer";
-      const receiverType = isAdminSender ? "customer" : "admin";
+      let receiverId = toUserId;
 
-      // Lưu tin nhắn vào DB
+      // Customer → Admin
+      if (!isAdminSender) {
+        const [admins] = await db
+          .promise()
+          .query("SELECT id FROM employees WHERE role='admin' LIMIT 1");
+
+        if (!admins.length) return;
+        receiverId = admins[0].id;
+      }
+
+      // Lưu DB
       const sql = `
         INSERT INTO messages (sender_type, sender_id, receiver_id, message)
         VALUES (?, ?, ?, ?)
       `;
-      db.query(sql, [senderType, fromUserId, toUserId, message], (err, result) => {
-        if (err) {
-          console.error("Lỗi khi lưu tin nhắn:", err);
-          return;
-        }
 
-        console.log(`Tin nhắn từ ${senderType} ${fromUserId} → ${receiverType} ${toUserId}: "${message}"`);
+      db.query(sql, [senderType, fromUserId, receiverId, message], (err, result) => {
+        if (err) return console.error(err);
 
-        // Gửi tin nhắn tới người nhận nếu đang online
-        if (receiverType === "admin") {
-          Object.values(onlineUsers.admin).forEach(sid => {
-            io.to(sid).emit("receiveMessage", { fromUserId, message, isAdminSender });
-          });
-        } else {
-          const targetSocketId = onlineUsers.customer[toUserId];
-          if (targetSocketId) {
-            io.to(targetSocketId).emit("receiveMessage", { fromUserId, message, isAdminSender });
+        console.log(`💬 ${senderType} ${fromUserId} → ${receiverId}: "${message}"`);
+
+        // Emit realtime
+        if (isAdminSender) {
+          const custSocket = onlineUsers.customer[receiverId];
+          if (custSocket) {
+            io.to(custSocket).emit("receiveMessage", {
+              fromUserId,
+              message,
+              isAdminSender,
+            });
           }
+        } else {
+          Object.values(onlineUsers.admin).forEach((sid) => {
+            io.to(sid).emit("receiveMessage", {
+              fromUserId,
+              message,
+              isAdminSender,
+            });
+          });
         }
 
-        // Tạo và gửi thông báo realtime
+        // 🔔 Notification (CHỈ 1 LẦN)
+        emitMessageNotification(receiverId, fromUserId, message);
       });
-        emitMessageNotification(toUserId, fromUserId, message);
-
     });
 
-    // Khi ngắt kết nối
+    // Disconnect
     socket.on("disconnect", () => {
       for (let type of ["customer", "admin"]) {
         for (let id in onlineUsers[type]) {
           if (onlineUsers[type][id] === socket.id) {
-            console.log(`Người dùng ${id} (${type}) ngắt kết nối`);
             delete onlineUsers[type][id];
+            console.log(`🔴 ${type} ${id} offline`);
           }
         }
       }
-      emitOnlineUsers();
+      emitOnlineUsers(io);
     });
   });
 }
 
-// Gửi danh sách khách hàng từ DB cho admin và trạng thái admin cho khách
-function emitOnlineUsers() {
-  const sql = `SELECT id, full_name, email FROM customers`;
+function emitOnlineUsers(io) {
+  db.query("SELECT id, full_name FROM customers", (err, results) => {
+    if (err) return;
 
-  db.query(sql, (err, results) => {
-    if (err) {
-      console.error("Lỗi khi lấy khách hàng từ DB:", err);
-      return;
-    }
+    const isAdminOnline = Object.keys(onlineUsers.admin).length > 0;
 
-    const customers = results.map(c => ({ id: c.id, full_name: c.full_name }));
-    const admins = Object.values(onlineUsers.admin);
-
-    admins.forEach(sid => {
-      ioInstance.to(sid).emit("updateOnlineUsers", customers);
+    Object.values(onlineUsers.admin).forEach((sid) => {
+      io.to(sid).emit("updateOnlineUsers", results);
     });
 
-    const isAdminOnline = admins.length > 0;
-    results.forEach(c => {
-      const customerSocket = onlineUsers.customer[c.id];
-      if (customerSocket) {
-        ioInstance.to(customerSocket).emit("updateAdminStatus", isAdminOnline);
+    results.forEach((c) => {
+      const socketId = onlineUsers.customer[c.id];
+      if (socketId) {
+        io.to(socketId).emit("updateAdminStatus", isAdminOnline);
       }
     });
-
-    console.log("Danh sách khách hàng (DB) gửi cho admin:", customers);
-    console.log("Admin online:", isAdminOnline);
   });
 }

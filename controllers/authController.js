@@ -25,6 +25,8 @@ export const register = (req, res) => {
 
 // 🟢 Đăng nhập user
 export const login = (req, res) => {
+  console.log(req.body);
+  
   const { email, password } = req.body;
 
   if (!email || !password)

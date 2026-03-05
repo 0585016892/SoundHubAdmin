@@ -1,6 +1,7 @@
 import db from "../config/db.js";
 import fs from "fs";
 
+
 // 🟢 Lấy danh sách sản phẩm
 export const getProducts = (req, res) => {
   try {

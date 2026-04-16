@@ -11,7 +11,7 @@ const options = {
     },
     servers: [
       {
-        url: "http://localhost:5000/api",
+        url: "http://localhost:13002/api",
       },
     ],
   },
@@ -22,5 +22,5 @@ const swaggerSpec = swaggerJSDoc(options);
 
 export const setupSwagger = (app) => {
   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-  console.log("📘 Swagger Docs chạy tại: http://localhost:5000/api-docs");
+  console.log("📘 Swagger Docs chạy tại: http://localhost:13002/api-docs");
 };

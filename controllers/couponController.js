@@ -89,6 +89,8 @@ export const getCouponById = (req, res) => {
 
 // 🟢 Thêm mã giảm giá
 export const createCoupon = (req, res) => {
+  console.log("gọi api");
+  console.log(req.body);
   const {
     code,
     description,

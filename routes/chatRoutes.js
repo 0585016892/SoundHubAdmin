@@ -6,6 +6,7 @@ const router = express.Router();
 // Lấy lịch sử chat giữa user và admin
 router.get("/history/:userId", (req, res) => {
   const { userId } = req.params;
+console.log(userId);
 
   const sql = `
     SELECT * FROM messages
@@ -26,7 +27,8 @@ router.get("/history/:userId", (req, res) => {
       text: m.message,
       createdAt: m.created_at,
     }));
-
+    console.log(messages);
+    
     res.json(messages); // trả về mảng messages
   });
 });

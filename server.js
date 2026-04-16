@@ -72,5 +72,5 @@ setupNotificationSocket(io);
 // setupSocket(io);
 
 // Chạy server
-const PORT = process.env.PORT || 20022;
+const PORT = process.env.PORT || 13002;
 server.listen(PORT, () => console.log(`🚀 Server chạy tại http://localhost:${PORT}`));
